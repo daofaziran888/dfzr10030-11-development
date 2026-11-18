@@ -28,8 +28,13 @@ class Store:
         return None
 
     def overview(self) -> dict[str, object]:
+        # 通道接入批次包相关表是内部数据表，不属于运营概览里的业务模块。
+        from app.services.channel_batch import INTERNAL_MODULES
+
         modules: list[dict[str, object]] = []
         for name in self.module_names():
+            if name in INTERNAL_MODULES:
+                continue
             rows = self.rows(name)
             modules.append({
                 "name": name,

@@ -1,8 +1,13 @@
-"""格式解析器业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""格式解析器业务规则：状态流转、字段校验与筛选口径都收在这里。
+
+边界：解析服务不生产批次包，只读接入通道服务写入的同一份 ingestion_batch，
+并回写待审核工作台项（review_workbench）与后续处理编排指令。
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from app.services import channel_batch as cb
 from app.store import store
 
 MODULE = "parser"
@@ -63,3 +68,20 @@ class ParserService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"解析配置已{action}"
+
+    # ---- 通道接入批次包：格式解析服务侧（读取方 + 工作台回写） ----
+    def list_channel_batches(self, input_format: str | None = None) -> list[dict[str, Any]]:
+        """读取接入通道服务写入的同一份批次包；解析端只看背压完整的 leaf 批次。"""
+        return cb.list_batches(level=cb.LEVEL_LEAF, input_format=input_format)
+
+    def get_channel_batch(self, batch_no: str) -> dict[str, Any] | None:
+        return cb.get_batch_detail(batch_no)
+
+    def list_review_items(self, status: str | None = None) -> list[dict[str, Any]]:
+        return cb.list_review_items(status=status)
+
+    def review_batch(self, batch_no: str, action: str, remark: str | None = None) -> tuple[dict[str, Any] | None, str]:
+        return cb.review_leaf(batch_no, action, remark)
+
+    def orchestrate_batch(self, batch_no: str, instruction: str | None = None) -> tuple[dict[str, Any] | None, str]:
+        return cb.orchestrate(batch_no, instruction)

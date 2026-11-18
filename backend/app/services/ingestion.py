@@ -1,9 +1,10 @@
-"""数据接入通道 时间线服务：生成作业时间序列和示例数据。"""
+"""数据接入通道 时间线服务：生成作业时间序列、示例数据与通道接入批次包取数。"""
 from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
 
+from app.services import channel_batch as cb
 from app.store import store
 
 MODULE = "ingestion"
@@ -58,3 +59,43 @@ class IngestionService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"接入通道已{action}"
+
+    # ---- 通道接入批次包：接入通道服务侧（写入方） ----
+    def list_shards(self, channel_code: str | None = None) -> list[dict[str, Any]]:
+        return cb.list_shards(channel_code=channel_code)
+
+    def register_shard(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+        return cb.register_shard(values)
+
+    def preview_batches(self, channel_codes: list[str], strategy: str) -> tuple[dict[str, Any] | None, str]:
+        if not channel_codes:
+            return None, "请至少选择一个接入通道"
+        unknown = [c for c in channel_codes if cb._find_channel(c) is None]
+        if unknown:
+            return None, f"通道不存在：{'、'.join(unknown)}"
+        if strategy not in cb.STRATEGIES:
+            return None, "合并策略只支持 channel_first / format_first"
+        return cb.preview_batches(channel_codes, strategy), ""
+
+    def build_batches(self, channel_codes: list[str], strategy: str,
+                      data_versions: dict[str, str] | None = None) -> tuple[dict[str, Any] | None, str]:
+        if not channel_codes:
+            return None, "请至少选择一个接入通道"
+        unknown = [c for c in channel_codes if cb._find_channel(c) is None]
+        if unknown:
+            return None, f"通道不存在：{'、'.join(unknown)}"
+        if strategy not in cb.STRATEGIES:
+            return None, "合并策略只支持 channel_first / format_first"
+        result = cb.build_batches(channel_codes, strategy, data_versions=data_versions)
+        if all(not item["ok"] for item in result["results"]):
+            return result, "所选通道均未生成批次，详见逐台记录"
+        return result, ""
+
+    def list_batches(self, level: str | None = None, channel_code: str | None = None) -> list[dict[str, Any]]:
+        return cb.list_batches(level=level, channel_code=channel_code)
+
+    def get_batch_detail(self, batch_no: str) -> dict[str, Any] | None:
+        return cb.get_batch_detail(batch_no)
+
+    def list_build_records(self) -> list[dict[str, Any]]:
+        return cb.list_build_records()

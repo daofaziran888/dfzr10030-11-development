@@ -35,6 +35,35 @@ class ActionPayload(BaseModel):
     remark: str | None = None
 
 
+class ShardPayload(BaseModel):
+    """接入通道侧登记的输入分片，必须绑定通道与输入格式。"""
+
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchBuildPayload(BaseModel):
+    """多选接入通道整组构建通道接入批次包。"""
+
+    通道编号列表: list[str]
+    合并策略: str
+    数据版本: dict[str, str] | None = None
+
+
+class BatchPreviewPayload(BaseModel):
+    """不落库的切批预演，用于对比两种合并边界。"""
+
+    通道编号列表: list[str]
+    合并策略: str
+
+
+class ReviewPayload(BaseModel):
+    """格式解析服务对待审核工作台项执行审核/编排。"""
+
+    action: str
+    remark: str | None = None
+    instruction: str | None = None
+
+
 
 class DatasourceEntry(BaseModel):
     """数据源明细结构。"""

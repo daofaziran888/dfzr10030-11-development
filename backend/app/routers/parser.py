@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import csv
 import io
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult, ReviewPayload
 from app.services.parser import ParserService
 
 router = APIRouter(prefix="/api/parser", tags=["格式解析器"])
@@ -63,6 +64,51 @@ def export_entries(
     return StreamingResponse(
         iter([output.getvalue()]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="parser.csv"'})
+
+
+# ==================== 通道接入批次包（格式解析服务边界：读取同一份 + 工作台回写） ====================
+
+@router.get("/channel-batches/list", response_model=dict)
+def list_channel_batches(
+    input_format: str | None = Query(default=None, description="按输入格式过滤，解析端据此选择字段映射"),
+) -> dict[str, Any]:
+    """读取接入通道服务写入的同一份通道接入批次包，只暴露背压完整的 leaf 批次。"""
+    items = service.list_channel_batches(input_format=input_format)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/channel-batches/{batch_no}/detail", response_model=dict)
+def get_channel_batch(batch_no: str) -> dict[str, Any]:
+    """批次包详情：含通道/背压快照、分片来源与建议解析配置。"""
+    detail = service.get_channel_batch(batch_no)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"通道接入批次包 {batch_no} 不存在")
+    return detail
+
+
+@router.get("/review-workbench/list", response_model=dict)
+def list_review_items(status: str | None = Query(default=None, description="待审核/已通过/已驳回")) -> dict[str, Any]:
+    """解析侧待审核工作台：与接入通道侧批次包同步生成。"""
+    items = service.list_review_items(status=status)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/channel-batches/{batch_no}/review", response_model=ActionResult)
+def review_channel_batch(batch_no: str, payload: ReviewPayload) -> ActionResult:
+    """对 leaf 批次执行审核（通过/驳回），回写工作台项与批次审核状态。"""
+    entry, message = service.review_batch(batch_no, payload.action.strip(), payload.remark)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
+
+
+@router.post("/channel-batches/{batch_no}/orchestrate", response_model=ActionResult)
+def orchestrate_channel_batch(batch_no: str, payload: ReviewPayload) -> ActionResult:
+    """按通道接入批次包编排接入通道后续处理；未审核通过或重复编排都会被拦住。"""
+    entry, message = service.orchestrate_batch(batch_no, payload.instruction)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
 
 
 @router.get("/{entry_id}", response_model=dict)
